@@ -1,23 +1,46 @@
-import type { Chat, Thread, Message } from 'chat'
+import { Buffer } from 'node:buffer'
+import type { Chat, Thread, Message, Attachment } from 'chat'
 import { emit, trackIssue } from '@/lib/events/emit'
 import { buildAgent } from '@/lib/agent/agent'
 import { getEnv } from '@/lib/env'
+import { transcribe } from '@/lib/voice/stt'
+import { synthesize } from '@/lib/voice/tts'
+import { uploadMedia } from '@/lib/kapso/media'
 
 const ISSUE_ID_RE = /\b[A-Z]{2,5}-\d+\b/g
+const TTS_REPLY_MAX_CHARS = 600
 
 /**
  * Wire the Chat SDK bot to the LinearVoice agent.
- * - Emits dashboard events for every message and tool call.
- * - Streams the agent reply directly into thread.post() so the user
- *   sees it incrementally on platforms that support live updates.
- * - Falls back to a friendly error message when the agent throws.
+ * - Transcribes inbound voice notes via ElevenLabs.
+ * - Streams the agent reply into thread.post().
+ * - For voice-in conversations, also synthesizes a TTS reply and posts
+ *   it as a Kapso/WhatsApp audio attachment. TTS failures never block
+ *   the text reply.
+ * - Emits dashboard events for every step.
  */
 export function registerHandlers(bot: Chat): void {
   bot.onDirectMessage(async (thread: Thread, message: Message) => {
     const conversationId = thread.id
     const ts = Date.now()
-    const userText = (message.text ?? '').trim()
-    const modality: 'text' | 'audio' = 'text' // step 5 sets this to 'audio' for voice notes
+    let userText = (message.text ?? '').trim()
+    let modality: 'text' | 'audio' = 'text'
+
+    const audioAttachment = pickAudioAttachment(message.attachments)
+    if (audioAttachment) {
+      modality = 'audio'
+      try {
+        const { buffer, mimeType } = await fetchAttachment(audioAttachment)
+        userText = (await transcribe(buffer, mimeType)).trim()
+      } catch (err) {
+        await emit({
+          type: 'error',
+          conversationId,
+          error: `STT failed: ${err instanceof Error ? err.message : String(err)}`,
+          ts: Date.now(),
+        })
+      }
+    }
 
     await emit({
       type: 'message_received',
@@ -29,7 +52,10 @@ export function registerHandlers(bot: Chat): void {
     })
 
     if (!userText) {
-      const reply = '¿Podrías mandarme un mensaje de texto o nota de voz? No detecté contenido legible.'
+      const reply =
+        modality === 'audio'
+          ? 'No pude entender el audio — ¿podrías repetirlo o mandarme texto?'
+          : '¿Podrías mandarme un mensaje de texto o nota de voz?'
       await thread.post(reply)
       await emit({
         type: 'message_sent',
@@ -43,8 +69,6 @@ export function registerHandlers(bot: Chat): void {
 
     const env = getEnv()
     if (!env.LINEAR_OAUTH_TOKEN) {
-      // Useful while LINEAR_OAUTH_TOKEN is missing — keeps the wire
-      // testable from /api/test/send before the team configures Linear.
       const reply = `Recibí: "${userText}". (Linear MCP no configurado todavía: define LINEAR_OAUTH_TOKEN para activar el agente.)`
       await thread.post(reply)
       await emit({
@@ -58,7 +82,7 @@ export function registerHandlers(bot: Chat): void {
     }
 
     const toolStartedAt = new Map<string, number>()
-
+    let finalText = ''
     try {
       const agent = await buildAgent()
       const result = await agent.stream({
@@ -90,13 +114,9 @@ export function registerHandlers(bot: Chat): void {
         },
       })
 
-      // Pass the AI SDK fullStream to Chat SDK; it filters text deltas
-      // and emits one or more platform messages with progressive
-      // updates where supported.
       await thread.post(result.fullStream)
-      const finalText = await result.text
+      finalText = await result.text
 
-      // Track any Linear identifiers we mentioned for the dashboard.
       for (const id of finalText.match(ISSUE_ID_RE) ?? []) {
         await trackIssue(id).catch(() => {})
       }
@@ -125,6 +145,62 @@ export function registerHandlers(bot: Chat): void {
         modality: 'text',
         ts: Date.now(),
       })
+      return
+    }
+
+    // Voice reply (best-effort): only when the user spoke and the reply
+    // is short. Failures here must not affect the already-posted text.
+    if (
+      modality === 'audio' &&
+      finalText &&
+      finalText.length <= TTS_REPLY_MAX_CHARS &&
+      env.ELEVENLABS_API_KEY
+    ) {
+      try {
+        const audio = await synthesize(finalText)
+        const mediaId = await uploadMedia(audio, 'audio/mpeg')
+        await thread.post({
+          raw: '',
+          attachments: [
+            {
+              type: 'audio',
+              mimeType: 'audio/mpeg',
+              data: audio,
+              fetchMetadata: { mediaId },
+            },
+          ],
+        })
+        await emit({
+          type: 'message_sent',
+          conversationId,
+          content: '[audio]',
+          modality: 'audio',
+          ts: Date.now(),
+        })
+      } catch (err) {
+        await emit({
+          type: 'error',
+          conversationId,
+          error: `TTS failed: ${err instanceof Error ? err.message : String(err)}`,
+          ts: Date.now(),
+        })
+      }
     }
   })
+}
+
+function pickAudioAttachment(attachments: Attachment[] | undefined): Attachment | undefined {
+  return attachments?.find((a) => a.type === 'audio')
+}
+
+async function fetchAttachment(att: Attachment): Promise<{ buffer: Buffer; mimeType: string }> {
+  if (att.data) {
+    const buf = att.data instanceof Buffer ? att.data : Buffer.from(await (att.data as Blob).arrayBuffer())
+    return { buffer: buf, mimeType: att.mimeType ?? 'audio/ogg' }
+  }
+  if (att.fetchData) {
+    const buf = await att.fetchData()
+    return { buffer: buf, mimeType: att.mimeType ?? 'audio/ogg' }
+  }
+  throw new Error('attachment has no data or fetcher')
 }
