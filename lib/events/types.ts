@@ -1,50 +1,51 @@
-/**
- * Event types emitted to Redis Stream `events:stream`.
- * Consumed by the dashboard SSE endpoint and REST endpoints.
- *
- * The shape matches V0_PROMPT.md so the PM's frontend can integrate
- * cleanly with predictable payloads.
- */
-export type DemoEvent =
-  | {
-      type: 'message_received'
-      conversationId: string
-      from: string
-      content: string
-      modality: 'text' | 'audio'
-      ts: number
-    }
-  | {
-      type: 'tool_call_started'
-      conversationId: string
-      toolCallId: string
-      tool: string
-      input: unknown
-      ts: number
-    }
-  | {
-      type: 'tool_call_finished'
-      conversationId: string
-      toolCallId: string
-      output: unknown
-      latencyMs: number
-      ts: number
-    }
-  | {
-      type: 'message_sent'
-      conversationId: string
-      content: string
-      modality: 'text' | 'audio'
-      tokensIn?: number
-      tokensOut?: number
-      costUsd?: number
-      ts: number
-    }
-  | {
-      type: 'error'
-      conversationId?: string
-      error: string
-      ts: number
-    }
+export interface WhatsAppMessage {
+  id: string;
+  from: string;
+  to: string;
+  text?: string;
+  mediaUrl?: string;
+  mediaType?: 'image' | 'document' | 'audio' | 'video';
+  timestamp: number;
+}
 
-export type DemoEventType = DemoEvent['type']
+export interface LinearEvent {
+  type: 'issue.created' | 'issue.updated' | 'comment.created';
+  issueId: string;
+  title: string;
+  description: string;
+  status: string;
+  authorName: string;
+  timestamp: number;
+}
+
+export interface ConversationEvent {
+  id: string;
+  conversationId: string;
+  userId: string; // WhatsApp phone number
+  type: 'message' | 'linear_event' | 'voice_note';
+  content: string;
+  metadata?: Record<string, any>;
+  timestamp: number;
+}
+
+export interface StreamEvent {
+  type: 'whatsapp.message' | 'linear.event' | 'bot.response' | 'voice.transcribed';
+  payload: WhatsAppMessage | LinearEvent | ConversationEvent;
+  timestamp: number;
+}
+
+export interface ConversationState {
+  id: string;
+  userId: string;
+  messages: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: number;
+  }>;
+  linearContext?: {
+    lastIssueId?: string;
+    lastQuery?: string;
+  };
+  createdAt: number;
+  updatedAt: number;
+}

@@ -1,8 +1,14 @@
 import { redis } from '@/lib/redis/client'
-import type { DemoEvent } from '@/lib/events/types'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+type StoredEnvelope = {
+  id: string
+  type: string
+  payload: string
+  timestamp: string
+}
 
 export async function GET(
   _req: Request,
@@ -14,10 +20,10 @@ export async function GET(
     0,
     -1,
   )) ?? []) as string[]
-  const events: DemoEvent[] = []
+  const events: StoredEnvelope[] = []
   for (const entry of raw) {
     try {
-      events.push(JSON.parse(entry) as DemoEvent)
+      events.push(JSON.parse(entry) as StoredEnvelope)
     } catch {
       // skip malformed
     }

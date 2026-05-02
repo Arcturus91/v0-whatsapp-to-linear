@@ -1,5 +1,4 @@
 import { getBot } from '@/lib/chat/bot'
-import { emit } from '@/lib/events/emit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -13,7 +12,7 @@ export async function POST(req: Request): Promise<Response> {
     return await getBot().webhooks.whatsapp(req)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    await emit({ type: 'error', error: message, ts: Date.now() }).catch(() => {})
+    console.error('[/api/whatsapp] handler failed:', err)
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { 'content-type': 'application/json' },

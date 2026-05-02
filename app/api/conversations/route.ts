@@ -1,8 +1,14 @@
 import { redis } from '@/lib/redis/client'
-import type { DemoEvent } from '@/lib/events/types'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+type StoredEnvelope = {
+  id: string
+  type: string
+  payload: string
+  timestamp: string
+}
 
 export async function GET(): Promise<Response> {
   const ids = ((await redis.zrange('conversations:active', 0, -1, {
@@ -16,10 +22,10 @@ export async function GET(): Promise<Response> {
         -1,
         -1,
       )) ?? []) as string[]
-      let lastMessage: DemoEvent | null = null
+      let lastMessage: StoredEnvelope | null = null
       if (raw[0]) {
         try {
-          lastMessage = JSON.parse(raw[0]) as DemoEvent
+          lastMessage = JSON.parse(raw[0]) as StoredEnvelope
         } catch {
           lastMessage = null
         }

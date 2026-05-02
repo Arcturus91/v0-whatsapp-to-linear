@@ -1,69 +1,53 @@
-import { latestId, readSince } from '@/lib/events/read'
+import { NextRequest, NextResponse } from 'next/server'
 
-export const runtime = 'nodejs'
-export const dynamic = 'force-dynamic'
+import { readRecentEvents } from '@/lib/events/read'
+import { StreamEvent } from '@/lib/events/types'
 
-const POLL_INTERVAL_MS = 1_000
-const HEARTBEAT_MS = 15_000
+const DEFAULT_LIMIT = 50
+const MAX_LIMIT = 200
 
-/**
- * Server-Sent Events feed of the demo Redis Stream.
- *
- * Upstash REST Redis does not support BLOCK on XREAD, so we poll
- * `xrange` from the last seen id every second and push deltas to
- * the client. A heartbeat keeps the connection alive through any
- * proxies that drop idle streams.
- */
-export async function GET(req: Request): Promise<Response> {
-  const encoder = new TextEncoder()
-  const initialId = await latestId().catch(() => '0')
+function coerceLimit(rawLimit: string | null): number {
+  if (!rawLimit) return DEFAULT_LIMIT
+  const parsed = Number.parseInt(rawLimit, 10)
+  if (Number.isNaN(parsed) || parsed <= 0) return DEFAULT_LIMIT
+  return Math.min(parsed, MAX_LIMIT)
+}
 
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      let closed = false
-      const onAbort = () => {
-        closed = true
-      }
-      req.signal.addEventListener('abort', onAbort)
+function parseTypes(rawTypes: string | null): Set<StreamEvent['type']> | null {
+  if (!rawTypes) return null
 
-      controller.enqueue(
-        encoder.encode(`event: ready\ndata: ${JSON.stringify({ initialId })}\n\n`),
-      )
+  const types = rawTypes
+    .split(',')
+    .map(type => type.trim())
+    .filter(Boolean) as StreamEvent['type'][]
 
-      let lastId = initialId
-      let lastHeartbeat = Date.now()
+  return types.length > 0 ? new Set(types) : null
+}
 
-      while (!closed) {
-        try {
-          const events = await readSince(lastId, 100)
-          for (const ev of events) {
-            lastId = ev.id
-            controller.enqueue(
-              encoder.encode(`id: ${ev.id}\ndata: ${JSON.stringify(ev)}\n\n`),
-            )
-          }
-          if (Date.now() - lastHeartbeat > HEARTBEAT_MS) {
-            controller.enqueue(encoder.encode(`: heartbeat\n\n`))
-            lastHeartbeat = Date.now()
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
-          controller.enqueue(
-            encoder.encode(`event: error\ndata: ${JSON.stringify({ message })}\n\n`),
-          )
-        }
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
-      }
-      controller.close()
-    },
-  })
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = request.nextUrl
+    const limit = coerceLimit(searchParams.get('limit'))
+    const filterTypes = parseTypes(searchParams.get('types'))
 
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    },
-  })
+    const events = await readRecentEvents(limit)
+    const filtered = filterTypes
+      ? events.filter(event => filterTypes.has(event.type))
+      : events
+
+    return NextResponse.json({
+      total: filtered.length,
+      events: filtered,
+    })
+  } catch (error) {
+    console.error('[v0] Events API error:', error)
+    return NextResponse.json(
+      {
+        error: 'Failed to fetch events',
+        total: 0,
+        events: [],
+      },
+      { status: 500 }
+    )
+  }
 }
