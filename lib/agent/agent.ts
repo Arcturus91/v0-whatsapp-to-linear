@@ -19,7 +19,7 @@ export async function buildAgent(): Promise<ToolLoopAgent<never, Awaited<ReturnT
     stopWhen: stepCountIs(8),
     providerOptions: {
       gateway: {
-        models: ['openai/gpt-5.4'],
+        models: ['anthropic/claude-haiku-4.5'],
         tags: ['feature:linearvoice', 'env:hackathon'],
       },
     },

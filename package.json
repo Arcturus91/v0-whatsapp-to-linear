@@ -44,6 +44,7 @@
     "@radix-ui/react-toggle-group": "1.1.11",
     "@radix-ui/react-tooltip": "1.2.8",
     "@upstash/redis": "^1.37.0",
+    "@vercel/functions": "^3.5.0",
     "ai": "^6.0.174",
     "autoprefixer": "^10.4.20",
     "chat": "^4.27.0",

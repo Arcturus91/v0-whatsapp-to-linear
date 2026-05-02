@@ -99,10 +99,22 @@ export function registerHandlers(bot: Chat): void {
 
     let finalText = ''
     try {
+      console.log('[handlers] AUTH presence:', {
+        oidc: !!process.env.VERCEL_OIDC_TOKEN,
+        gatewayKey: !!process.env.AI_GATEWAY_API_KEY,
+        linear: !!env.LINEAR_OAUTH_TOKEN,
+      })
+      console.log('[handlers] buildAgent: start')
       const agent = await buildAgent()
+      console.log('[handlers] buildAgent: ok')
+      console.log('[handlers] agent.stream: start', { promptLen: userText.length })
       const result = await agent.stream({
         prompt: userText,
         onStepFinish: async (step) => {
+          console.log('[handlers] agent.stream: step', {
+            toolCalls: step.toolCalls?.length ?? 0,
+            toolResults: step.toolResults?.length ?? 0,
+          })
           for (const call of step.toolCalls ?? []) {
             console.log('[agent] tool_call_started', {
               conversationId,
@@ -118,9 +130,12 @@ export function registerHandlers(bot: Chat): void {
           }
         },
       })
+      console.log('[handlers] agent.stream: returned, posting to thread')
 
       await thread.post(result.fullStream)
+      console.log('[handlers] thread.post: ok, awaiting result.text')
       finalText = await result.text
+      console.log('[handlers] result.text: resolved', { len: finalText.length })
 
       for (const id of finalText.match(ISSUE_ID_RE) ?? []) {
         await trackIssue(id).catch(() => {})
@@ -135,7 +150,7 @@ export function registerHandlers(bot: Chat): void {
         timestamp: Date.now(),
       })
     } catch (err) {
-      console.error('[handlers] agent failed:', err)
+      console.error('[handlers] agent failed (caught):', err)
       const friendly =
         'Algo no anda con el agente justo ahora. ¿Podrías reintentar en un minuto?'
       await thread.post(friendly).catch(() => {})

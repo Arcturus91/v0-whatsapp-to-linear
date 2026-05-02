@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { waitUntil } from '@vercel/functions'
 import { getBot } from '@/lib/chat/bot'
 import { getEnv } from '@/lib/env'
 import {
@@ -82,7 +83,7 @@ export async function POST(req: Request): Promise<Response> {
       headers: req.headers,
       body: rawBody,
     })
-    return await getBot().webhooks.whatsapp(synthetic)
+    return await getBot().webhooks.whatsapp(synthetic, { waitUntil })
   } catch (err) {
     console.error('[/api/whatsapp] handler failed:', err)
     const message = err instanceof Error ? err.message : String(err)
@@ -123,7 +124,7 @@ async function forwardToAdapter(
     body,
   })
   try {
-    return await getBot().webhooks.whatsapp(synthetic)
+    return await getBot().webhooks.whatsapp(synthetic, { waitUntil })
   } catch (err) {
     console.error('[/api/whatsapp] adapter failed on translated payload:', err)
     const message = err instanceof Error ? err.message : String(err)

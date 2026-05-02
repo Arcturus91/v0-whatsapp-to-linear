@@ -15,3 +15,8 @@ node_modules
 .next/
 .DS_Store
 .vercel
+tsconfig.tsbuildinfo
+
+# Per-tool agent skill mirrors (synced from .agents/)
+.claude/
+.kiro/
