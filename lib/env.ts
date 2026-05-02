@@ -1,9 +1,11 @@
 import { z } from 'zod'
 
 const envSchema = z.object({
-  // Vercel-managed (Upstash Redis Marketplace integration)
-  UPSTASH_REDIS_REST_URL: z.string().url(),
-  UPSTASH_REDIS_REST_TOKEN: z.string(),
+  // Vercel-managed (Upstash Redis Marketplace integration).
+  // The Marketplace install auto-injects these names; @upstash/redis also
+  // reads them via Redis.fromEnv().
+  KV_REST_API_URL: z.string().url(),
+  KV_REST_API_TOKEN: z.string(),
   // Optional TCP redis URL for the Chat SDK state-redis adapter (which
   // uses node-redis, not the REST API). When absent we fall back to the
   // memory state adapter — fine for the demo.
