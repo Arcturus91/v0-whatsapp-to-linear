@@ -1,107 +1,59 @@
-import { getRedisClient } from '../redis/client';
-import { StreamEvent } from './types';
+import { redis } from '@/lib/redis/client'
+import type { DemoEvent } from './types'
 
-const STREAM_KEY = 'linearvoice:events';
-const EVENTS_LIST_KEY = 'linearvoice:event_ids';
+const STREAM_KEY = 'events:stream'
 
-export async function readRecentEvents(count: number = 50): Promise<StreamEvent[]> {
-  const client = getRedisClient();
-  try {
-    const eventIds = await client.lrange(EVENTS_LIST_KEY, 0, count - 1);
-    const events: StreamEvent[] = [];
+export type StoredEvent = DemoEvent & { id: string }
 
-    for (const eventId of eventIds) {
-      const data = await client.get(`${STREAM_KEY}:${eventId}`);
-      if (data && typeof data === 'string') {
-        const parsed = JSON.parse(data);
-        events.push({
-          type: parsed.type,
-          payload: JSON.parse(parsed.payload),
-          timestamp: parseInt(parsed.timestamp),
-        });
-      }
-    }
-
-    return events;
-  } catch (error) {
-    console.error('[v0] Failed to read events:', error);
-    return [];
-  }
+/**
+ * Read events from the Redis stream after a given last-seen id (default
+ * `-` for all). Upstash REST does not support BLOCK so callers should
+ * poll with their own delay between reads.
+ */
+export async function readSince(
+  lastId: string = '-',
+  count: number = 100,
+): Promise<StoredEvent[]> {
+  // Inclusive of `lastId`; we filter it out below.
+  const start = lastId === '-' || lastId === '$' ? '-' : `(${lastId}`
+  const range = (await redis.xrange(STREAM_KEY, start, '+', count)) as Record<
+    string,
+    { payload?: string }
+  >
+  if (!range || typeof range !== 'object') return []
+  const ids = Object.keys(range)
+  ids.sort(compareStreamIds)
+  return ids.map((id) => parseEntry(id, range[id]))
 }
 
-export async function readEventsSince(lastId: string): Promise<StreamEvent[]> {
-  const client = getRedisClient();
-  try {
-    const eventIds = await client.lrange(EVENTS_LIST_KEY, 0, -1);
-    const events: StreamEvent[] = [];
-    let foundStart = false;
-
-    for (const eventId of eventIds) {
-      if (eventId === lastId) {
-        foundStart = true;
-        continue;
-      }
-      if (foundStart) {
-        const data = await client.get(`${STREAM_KEY}:${eventId}`);
-        if (data && typeof data === 'string') {
-          const parsed = JSON.parse(data);
-          events.push({
-            type: parsed.type,
-            payload: JSON.parse(parsed.payload),
-            timestamp: parseInt(parsed.timestamp),
-          });
-        }
-      }
-    }
-
-    return events;
-  } catch (error) {
-    console.error('[v0] Failed to read events since:', error);
-    return [];
-  }
+/** Sort Redis stream IDs lexicographically by (ms, seq). */
+function compareStreamIds(a: string, b: string): number {
+  const [aMs, aSeq] = a.split('-').map((n) => Number.parseInt(n, 10))
+  const [bMs, bSeq] = b.split('-').map((n) => Number.parseInt(n, 10))
+  if (aMs !== bMs) return aMs - bMs
+  return (aSeq || 0) - (bSeq || 0)
 }
 
-export async function getMetrics(): Promise<{
-  totalEvents: number;
-  eventTypes: Record<string, number>;
-}> {
-  const client = getRedisClient();
-  try {
-    const events = await readRecentEvents(1000);
-    const eventTypes: Record<string, number> = {};
-
-    events.forEach(event => {
-      eventTypes[event.type] = (eventTypes[event.type] || 0) + 1;
-    });
-
-    return {
-      totalEvents: events.length,
-      eventTypes,
-    };
-  } catch (error) {
-    console.error('[v0] Failed to get metrics:', error);
-    return { totalEvents: 0, eventTypes: {} };
-  }
-}
-
-export async function* watchEvents() {
-  const client = getRedisClient();
-  let lastEventId = '';
-
-  while (true) {
+function parseEntry(id: string, fields: { payload?: string } | undefined): StoredEvent {
+  const raw = fields?.payload
+  if (typeof raw === 'string') {
     try {
-      const newEvents = await readEventsSince(lastEventId);
-
-      for (const event of newEvents) {
-        // Track the last event ID by timestamp to handle subsequent reads
-        lastEventId = `${event.timestamp}-*`;
-        yield event;
-      }
-    } catch (error) {
-      console.error('[v0] Error watching events:', error);
+      const parsed = JSON.parse(raw) as DemoEvent
+      return { ...parsed, id }
+    } catch {
+      // fall through
     }
-
-    // Check periodically but don't block forever
-    await new Promise(resolve => setTimeout(resolve, 1000));
   }
+  return { id, type: 'error', error: 'malformed event', ts: Date.now() }
+}
+
+/** Latest stream id (or `0` if empty), used to seed SSE polling. */
+export async function latestId(): Promise<string> {
+  const range = (await redis.xrevrange(STREAM_KEY, '+', '-', 1)) as Record<
+    string,
+    unknown
+  >
+  if (!range) return '0'
+  const ids = Object.keys(range)
+  return ids[0] ?? '0'
 }

@@ -1,15 +1,17 @@
-import { getMetrics } from '@/lib/events/read';
-import { NextResponse } from 'next/server';
+import { redis } from '@/lib/redis/client'
 
-export async function GET() {
-  try {
-    const metrics = await getMetrics();
-    return NextResponse.json(metrics);
-  } catch (error) {
-    console.error('[v0] Metrics API error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch metrics', totalEvents: 0, eventTypes: {} },
-      { status: 500 }
-    );
-  }
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+export async function GET(): Promise<Response> {
+  const [counters, totalConversations, issuesTouched] = await Promise.all([
+    redis.hgetall('metrics:counters') as Promise<Record<string, string>>,
+    redis.zcard('conversations:active') as Promise<number>,
+    redis.scard('issues:touched') as Promise<number>,
+  ])
+  return Response.json({
+    counters: counters ?? {},
+    totalConversations: totalConversations ?? 0,
+    issuesTouched: issuesTouched ?? 0,
+  })
 }

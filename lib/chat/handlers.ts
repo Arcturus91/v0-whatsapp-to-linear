@@ -1,83 +1,34 @@
-import { getBot } from './bot';
-import { WhatsAppMessage } from '../events/types';
-import { getEnv } from '../env';
-import crypto from 'crypto';
+import type { Chat, Thread, Message } from 'chat'
+import { emit } from '@/lib/events/emit'
 
-const env = getEnv();
+/**
+ * Wire up Chat SDK handlers on the bot. Step 2 implementation echoes
+ * the user back so we can verify the webhook → adapter → state pipe
+ * end-to-end. Step 3 swaps the body for a ToolLoopAgent + Linear MCP.
+ */
+export function registerHandlers(bot: Chat): void {
+  bot.onDirectMessage(async (thread: Thread, message: Message) => {
+    const ts = Date.now()
+    const conversationId = thread.id
+    const text = message.text ?? ''
+    await emit({
+      type: 'message_received',
+      conversationId,
+      from: message.author?.userId ?? 'unknown',
+      content: text,
+      modality: 'text',
+      ts,
+    })
 
-export interface KapsoWebhookPayload {
-  event: string;
-  message?: {
-    id: string;
-    from: string;
-    to: string;
-    type: 'text' | 'image' | 'document' | 'audio' | 'video';
-    text?: string;
-    mediaUrl?: string;
-  };
-  timestamp: number;
-}
+    const reply = `echo: ${text}`
+    await thread.post(reply)
 
-export function verifyWebhookSignature(
-  payload: string,
-  signature: string,
-  secret: string
-): boolean {
-  const hmac = crypto.createHmac('sha256', secret);
-  const digest = hmac.update(payload).digest('hex');
-  return digest === signature;
-}
-
-export async function handleKapsoWebhook(payload: KapsoWebhookPayload, signature?: string): Promise<any> {
-  console.log('[v0] Received Kapso webhook:', payload);
-
-  // Verify webhook signature if provided
-  if (signature) {
-    const payloadStr = JSON.stringify(payload);
-    if (!verifyWebhookSignature(payloadStr, signature, env.WEBHOOK_SECRET)) {
-      throw new Error('Invalid webhook signature');
-    }
-  }
-
-  if (payload.event !== 'message_received' || !payload.message) {
-    return { success: false, reason: 'Not a message event' };
-  }
-
-  const msg = payload.message;
-
-  // Convert Kapso message to our internal format
-  const whatsappMessage: WhatsAppMessage = {
-    id: msg.id,
-    from: msg.from,
-    to: msg.to,
-    text: msg.text,
-    mediaUrl: msg.mediaUrl,
-    mediaType: msg.type as any,
-    timestamp: payload.timestamp || Date.now(),
-  };
-
-  // Process with bot
-  const bot = getBot();
-  const response = await bot.processIncomingMessage(whatsappMessage);
-
-  // TODO: Send response back via Kapso API
-  // For now, just return the response
-  return {
-    success: true,
-    response,
-  };
-}
-
-export async function sendWhatsAppMessage(
-  to: string,
-  text: string,
-  mediaUrl?: string
-): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  // TODO: Implement actual Kapso API call
-  // For now, just log
-  console.log(`[v0] Would send to ${to}: ${text}`);
-  return {
-    success: true,
-    messageId: `msg-${Date.now()}`,
-  };
+    await emit({
+      type: 'message_sent',
+      conversationId,
+      content: reply,
+      modality: 'text',
+      ts: Date.now(),
+    })
+  })
 }
