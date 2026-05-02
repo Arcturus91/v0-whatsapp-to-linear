@@ -1,9 +1,7 @@
-import { tool } from 'ai';
 import { z } from 'zod';
 
-// Linear Issue tool
-export const createLinearIssueTool = () =>
-  tool({
+export const tools = {
+  createLinearIssue: {
     description: 'Create or search for issues in Linear project management',
     parameters: z.object({
       action: z.enum(['create', 'search', 'update']).describe('Action to perform'),
@@ -13,7 +11,15 @@ export const createLinearIssueTool = () =>
       issueId: z.string().optional().describe('Issue ID for updates'),
       status: z.string().optional().describe('New status for the issue'),
     }),
-    execute: async ({ action, title, description, query, issueId, status }) => {
+    execute: async (params: {
+      action: string;
+      title?: string;
+      description?: string;
+      query?: string;
+      issueId?: string;
+      status?: string;
+    }) => {
+      const { action, title, description, query, issueId, status } = params;
       // Stub implementation - will be replaced with real Linear API calls
       console.log(`[v0] Linear tool: ${action}`, {
         title,
@@ -24,84 +30,78 @@ export const createLinearIssueTool = () =>
       });
 
       if (action === 'create') {
-        return { success: true, issueId: `LV-${Math.floor(Math.random() * 1000)}` };
+        return {
+          type: 'text' as const,
+          text: `Created issue LV-${Math.floor(Math.random() * 1000)}`,
+        };
       } else if (action === 'search') {
         return {
-          success: true,
-          results: [
-            {
-              id: 'LV-1',
-              title: 'Example issue',
-              status: 'In Progress',
-            },
-          ],
+          type: 'text' as const,
+          text: 'Found 1 matching issue: LV-1 (Example issue - In Progress)',
         };
       } else if (action === 'update') {
-        return { success: true, updated: true };
+        return { type: 'text' as const, text: 'Issue updated successfully' };
       }
 
-      return { success: false, error: 'Unknown action' };
+      return { type: 'text' as const, text: 'Unknown action' };
     },
-  });
-
-// Voice tool
-export const createVoiceTool = () =>
-  tool({
+  },
+  voice: {
     description: 'Convert text to speech or transcribe audio',
     parameters: z.object({
       action: z.enum(['text_to_speech', 'transcribe']).describe('Action to perform'),
       text: z.string().optional().describe('Text to convert to speech'),
       audioUrl: z.string().optional().describe('Audio URL to transcribe'),
     }),
-    execute: async ({ action, text, audioUrl }) => {
+    execute: async (params: {
+      action: string;
+      text?: string;
+      audioUrl?: string;
+    }) => {
+      const { action, text, audioUrl } = params;
       // Stub implementation - will use ElevenLabs
       console.log(`[v0] Voice tool: ${action}`, { text, audioUrl });
 
       if (action === 'text_to_speech') {
         return {
-          success: true,
-          audioUrl: 'https://example.com/audio.mp3',
-          duration: 2.5,
+          type: 'text' as const,
+          text: 'Audio generated: https://example.com/audio.mp3 (2.5s)',
         };
       } else if (action === 'transcribe') {
         return {
-          success: true,
-          transcript: 'This is a sample transcription',
-          confidence: 0.95,
+          type: 'text' as const,
+          text: 'Transcribed: This is a sample transcription (95% confidence)',
         };
       }
 
-      return { success: false, error: 'Unknown action' };
+      return { type: 'text' as const, text: 'Unknown action' };
     },
-  });
-
-// Context/Memory tool
-export const createMemoryTool = () =>
-  tool({
+  },
+  memory: {
     description: 'Store and retrieve conversation context and user preferences',
     parameters: z.object({
       action: z.enum(['set', 'get', 'delete']).describe('Action to perform'),
       key: z.string().describe('Memory key'),
       value: z.any().optional().describe('Value to store'),
     }),
-    execute: async ({ action, key, value }) => {
+    execute: async (params: {
+      action: string;
+      key: string;
+      value?: any;
+    }) => {
+      const { action, key, value } = params;
       // Stub implementation - will use Redis
       console.log(`[v0] Memory tool: ${action}`, { key, value });
 
       if (action === 'set') {
-        return { success: true, stored: true };
+        return { type: 'text' as const, text: `Stored ${key}` };
       } else if (action === 'get') {
-        return { success: true, value: null };
+        return { type: 'text' as const, text: `Retrieved ${key}: null` };
       } else if (action === 'delete') {
-        return { success: true, deleted: true };
+        return { type: 'text' as const, text: `Deleted ${key}` };
       }
 
-      return { success: false, error: 'Unknown action' };
+      return { type: 'text' as const, text: 'Unknown action' };
     },
-  });
-
-export const tools = {
-  createLinearIssue: createLinearIssueTool(),
-  voice: createVoiceTool(),
-  memory: createMemoryTool(),
+  },
 };

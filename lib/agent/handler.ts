@@ -1,13 +1,15 @@
 import { generateText } from 'ai';
-import { anthropic } from '@ai-sdk/anthropic';
 import { tools } from './tools';
-import { ConversationMessage } from '../events/types';
 
-const MODEL = 'claude-3-5-sonnet-20241022';
+const MODEL = 'anthropic.claude-3-5-sonnet-20241022';
 
 export interface AgentContext {
   conversationId: string;
-  messages: ConversationMessage[];
+  messages: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: number;
+  }>;
   userPhoneNumber: string;
   metadata?: Record<string, any>;
 }
@@ -34,14 +36,9 @@ export async function processMessageWithAgent(
       content: userMessage,
     });
 
-    // Generate response using Claude with tool support
+    // Generate response using Claude via AI Gateway
     const result = await generateText({
-      model: anthropic(MODEL),
-      tools: {
-        createLinearIssue: tools.createLinearIssue,
-        voice: tools.voice,
-        memory: tools.memory,
-      },
+      model: MODEL as any,
       messages,
       system: `You are LinearVoice, an AI assistant for WhatsApp that helps users manage their Linear project management tasks. You can:
 1. Create, search, and update Linear issues
@@ -50,7 +47,6 @@ export async function processMessageWithAgent(
 4. Provide project management guidance
 
 Be conversational and helpful. When a user asks to create an issue, create one. When they ask about their project, search for relevant issues. Keep responses concise for WhatsApp (max 500 chars per message).`,
-      maxToolRoundtrips: 3,
     });
 
     console.log(`[v0] Agent response generated`, {
