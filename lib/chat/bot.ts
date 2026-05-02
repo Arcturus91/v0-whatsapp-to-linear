@@ -20,7 +20,19 @@ export class LinearVoiceBot {
     // Get or create conversation state
     let state = this.conversationStates.get(message.from);
     if (!state) {
-      state = await getConversationState(message.from) || {
+      const savedState = await getConversationState(message.from);
+      state = savedState || {
+        id: message.from,
+        userId: message.from,
+        messages: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+    }
+
+    // Ensure state is defined
+    if (!state) {
+      state = {
         id: message.from,
         userId: message.from,
         messages: [],
