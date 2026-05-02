@@ -4,6 +4,44 @@ import { StreamEvent } from './types';
 const STREAM_KEY = 'linearvoice:events';
 const EVENTS_LIST_KEY = 'linearvoice:event_ids';
 
+/**
+ * Upstash @upstash/redis auto-deserializes JSON values stored via SET,
+ * so `redis.get()` may return either a JSON-string (legacy / non-JSON)
+ * or the already-parsed object. Normalize both into a StreamEvent.
+ */
+function coerceStored(data: unknown): StreamEvent | null {
+  if (!data) return null;
+  let envelope: { type?: string; payload?: unknown; timestamp?: unknown } | null =
+    null;
+  if (typeof data === 'string') {
+    try {
+      envelope = JSON.parse(data);
+    } catch {
+      return null;
+    }
+  } else if (typeof data === 'object') {
+    envelope = data as { type?: string; payload?: unknown; timestamp?: unknown };
+  }
+  if (!envelope || !envelope.type) return null;
+  let payload: unknown = envelope.payload;
+  if (typeof payload === 'string') {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      // fall through; keep as-is
+    }
+  }
+  const timestamp =
+    typeof envelope.timestamp === 'string'
+      ? Number.parseInt(envelope.timestamp, 10)
+      : Number(envelope.timestamp ?? Date.now());
+  return {
+    type: envelope.type as StreamEvent['type'],
+    payload: payload as StreamEvent['payload'],
+    timestamp,
+  };
+}
+
 export async function readRecentEvents(count: number = 50): Promise<StreamEvent[]> {
   const client = getRedisClient();
   try {
@@ -12,14 +50,8 @@ export async function readRecentEvents(count: number = 50): Promise<StreamEvent[
 
     for (const eventId of eventIds) {
       const data = await client.get(`${STREAM_KEY}:${eventId}`);
-      if (data && typeof data === 'string') {
-        const parsed = JSON.parse(data);
-        events.push({
-          type: parsed.type,
-          payload: JSON.parse(parsed.payload),
-          timestamp: parseInt(parsed.timestamp),
-        });
-      }
+      const parsed = coerceStored(data);
+      if (parsed) events.push(parsed);
     }
 
     return events;
@@ -43,14 +75,8 @@ export async function readEventsSince(lastId: string): Promise<StreamEvent[]> {
       }
       if (foundStart) {
         const data = await client.get(`${STREAM_KEY}:${eventId}`);
-        if (data && typeof data === 'string') {
-          const parsed = JSON.parse(data);
-          events.push({
-            type: parsed.type,
-            payload: JSON.parse(parsed.payload),
-            timestamp: parseInt(parsed.timestamp),
-          });
-        }
+        const parsed = coerceStored(data);
+        if (parsed) events.push(parsed);
       }
     }
 

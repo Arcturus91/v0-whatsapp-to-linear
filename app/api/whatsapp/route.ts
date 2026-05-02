@@ -37,12 +37,6 @@ export async function POST(req: Request): Promise<Response> {
       })
     }
 
-    if (req.headers.get('x-webhook-batch') === 'true') {
-      // TODO: handle batched envelope when Kapso documents the wrapper.
-      console.log('[/api/whatsapp] batched event received, skipping for now')
-      return new Response(null, { status: 204 })
-    }
-
     if (!isInboundMessageEvent(event)) {
       console.log('[/api/whatsapp] non-inbound event ignored:', event)
       return new Response(null, { status: 204 })
@@ -58,18 +52,27 @@ export async function POST(req: Request): Promise<Response> {
       })
     }
 
-    let metaBody: ReturnType<typeof translateKapsoToMeta>
-    try {
-      metaBody = translateKapsoToMeta(parsed as Parameters<typeof translateKapsoToMeta>[0])
-    } catch (err) {
-      console.error('[/api/whatsapp] translation failed:', err)
-      return new Response(JSON.stringify({ error: 'unsupported payload' }), {
-        status: 400,
-        headers: { 'content-type': 'application/json' },
-      })
+    const items = unwrapBatch(parsed)
+    if (items.length === 0) {
+      console.log(
+        '[/api/whatsapp] batched envelope had no extractable items; keys=',
+        parsed && typeof parsed === 'object' ? Object.keys(parsed as object) : typeof parsed,
+      )
+      return new Response(null, { status: 204 })
     }
 
-    return await forwardToAdapter(metaBody, req, env.KAPSO_WEBHOOK_SECRET)
+    let lastResp: Response | null = null
+    for (const item of items) {
+      try {
+        const metaBody = translateKapsoToMeta(
+          item as Parameters<typeof translateKapsoToMeta>[0],
+        )
+        lastResp = await forwardToAdapter(metaBody, req, env.KAPSO_WEBHOOK_SECRET)
+      } catch (err) {
+        console.error('[/api/whatsapp] batch item failed:', err)
+      }
+    }
+    return lastResp ?? new Response(null, { status: 204 })
   }
 
   // Meta-forward (or unknown). Try to pass through unchanged.
@@ -129,6 +132,25 @@ async function forwardToAdapter(
       headers: { 'content-type': 'application/json' },
     })
   }
+}
+
+/**
+ * Kapso buffers events and may wrap them when X-Webhook-Batch=true.
+ * The exact envelope isn't documented, so we accept three shapes:
+ *   1) the body itself is an array of single-event payloads
+ *   2) { events: [...] }
+ *   3) a single-event object (treated as a list of one)
+ */
+function unwrapBatch(parsed: unknown): unknown[] {
+  if (Array.isArray(parsed)) return parsed
+  if (parsed && typeof parsed === 'object') {
+    const obj = parsed as Record<string, unknown>
+    if (Array.isArray(obj.events)) return obj.events
+    if (Array.isArray(obj.data)) return obj.data
+    if (Array.isArray(obj.items)) return obj.items
+    if ('message' in obj && 'conversation' in obj) return [obj]
+  }
+  return []
 }
 
 function verifyKapsoSignature(
