@@ -1,6 +1,7 @@
 import { getEnv } from '../env';
 import { emitWhatsAppMessage, emitBotResponse, getConversationState, saveConversationState } from '../events/emit';
 import { WhatsAppMessage, ConversationState } from '../events/types';
+import { processMessageWithAgent } from '../agent/handler';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -48,9 +49,22 @@ export class LinearVoiceBot {
       timestamp: message.timestamp,
     });
 
-    // For now: echo the message back (stub)
-    // TODO: Replace with real ToolLoopAgent in step 3
-    const response = `Echo: ${message.text}`;
+    // Process with agent
+    let response: string;
+    try {
+      response = await processMessageWithAgent(
+        {
+          conversationId: message.from,
+          messages: state.messages,
+          userPhoneNumber: message.from,
+          metadata: { mediaType: message.mediaType, mediaUrl: message.mediaUrl },
+        },
+        message.text || '[media received]'
+      );
+    } catch (error) {
+      console.error('[v0] Agent error, falling back to echo:', error);
+      response = `I received your message but encountered an error processing it. Please try again.`;
+    }
 
     // Add bot response to history
     state.messages.push({

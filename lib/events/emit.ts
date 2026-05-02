@@ -75,5 +75,7 @@ export async function getConversationState(conversationId: string): Promise<any 
   const client = getRedisClient();
   const key = `conversation:${conversationId}`;
   const data = await client.get(key);
-  return data ? JSON.parse(data) : null;
+  if (!data) return null;
+  if (typeof data === 'string') return JSON.parse(data);
+  return data;
 }
