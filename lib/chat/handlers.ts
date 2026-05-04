@@ -11,6 +11,7 @@ import { getEnv } from '@/lib/env'
 import { transcribe } from '@/lib/voice/stt'
 import { synthesize } from '@/lib/voice/tts'
 import { uploadMedia } from '@/lib/kapso/media'
+import { markReadWithTyping } from '@/lib/kapso/typing'
 
 const ISSUE_ID_RE = /\b[A-Z]{2,5}-\d+\b/g
 const TTS_REPLY_MAX_CHARS = 600
@@ -37,6 +38,10 @@ export function registerHandlers(bot: Chat): void {
     const fromUser = message.author?.userId ?? 'unknown'
     let userText = (message.text ?? '').trim()
     let modality: 'text' | 'audio' = 'text'
+
+    // Fire-and-forget: shows the "typing..." animation during STT + agent
+    // run. Don't await — saves a few hundred ms on the critical path.
+    if (message.id) void markReadWithTyping(message.id)
 
     const audioAttachment = pickAudioAttachment(message.attachments)
     if (audioAttachment) {
@@ -107,9 +112,14 @@ export function registerHandlers(bot: Chat): void {
       console.log('[handlers] buildAgent: start')
       const agent = await buildAgent()
       console.log('[handlers] buildAgent: ok')
-      console.log('[handlers] agent.stream: start', { promptLen: userText.length })
+
+      const messages = await buildAgentMessages(thread, message.id, userText)
+      console.log('[handlers] agent.stream: start', {
+        currentLen: userText.length,
+        historyTurns: messages.length - 1,
+      })
       const result = await agent.stream({
-        prompt: userText,
+        messages,
         onStepFinish: async (step) => {
           console.log('[handlers] agent.stream: step', {
             toolCalls: step.toolCalls?.length ?? 0,
@@ -202,6 +212,39 @@ export function registerHandlers(bot: Chat): void {
       }
     }
   })
+}
+
+/**
+ * Pull prior thread messages and append the current user turn so the
+ * ToolLoopAgent has multi-turn context (otherwise it forgets what was
+ * said and demands the user re-state every detail).
+ *
+ * Audio turns are surfaced via STT into emitVoiceTranscribed but the
+ * raw WhatsApp Message has empty `.text`, so historic audio shows up
+ * as blank entries and we drop them. Trade-off accepted for hackathon.
+ */
+const MAX_HISTORY_TURNS = 20
+async function buildAgentMessages(
+  thread: Thread,
+  currentMessageId: string,
+  currentUserText: string,
+): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+  const history: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  try {
+    for await (const m of thread.allMessages) {
+      if (m.id === currentMessageId) continue
+      const text = (m.text ?? '').trim()
+      if (!text) continue
+      history.push({
+        role: m.author?.isMe ? 'assistant' : 'user',
+        content: text,
+      })
+    }
+  } catch (err) {
+    console.warn('[handlers] failed to load thread history:', err)
+  }
+  const trimmed = history.slice(-MAX_HISTORY_TURNS)
+  return [...trimmed, { role: 'user', content: currentUserText }]
 }
 
 function pickAudioAttachment(attachments: Attachment[] | undefined): Attachment | undefined {
