@@ -1,4 +1,5 @@
 import { LandingFeatures } from '@/components/landing/landing-features'
+import { LandingFooter } from '@/components/landing/landing-footer'
 import { LandingHero } from '@/components/landing/landing-hero'
 import { LandingQrCard } from '@/components/landing/landing-qr-card'
 
@@ -14,6 +15,7 @@ export default function Home() {
         <LandingHero />
         <LandingQrCard />
         <LandingFeatures />
+        <LandingFooter />
       </div>
     </main>
   )
