@@ -5,6 +5,7 @@ export interface WhatsAppMessage {
   text?: string;
   mediaUrl?: string;
   mediaType?: 'image' | 'document' | 'audio' | 'video';
+  metadata?: Record<string, any>;
   timestamp: number;
 }
 

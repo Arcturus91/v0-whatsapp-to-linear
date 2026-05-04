@@ -12,6 +12,7 @@ import { transcribe } from '@/lib/voice/stt'
 import { synthesize } from '@/lib/voice/tts'
 import { uploadMedia } from '@/lib/kapso/media'
 import { markReadWithTyping } from '@/lib/kapso/typing'
+import { checkRateLimit } from '@/lib/safety/rate-limit'
 
 const ISSUE_ID_RE = /\b[A-Z]{2,5}-\d+\b/g
 const TTS_REPLY_MAX_CHARS = 600
@@ -38,6 +39,38 @@ export function registerHandlers(bot: Chat): void {
     const fromUser = message.author?.userId ?? 'unknown'
     let userText = (message.text ?? '').trim()
     let modality: 'text' | 'audio' = 'text'
+
+    // Abuse guard: per-phone rate limit before any expensive work.
+    const limit = await checkRateLimit(fromUser)
+    if (!limit.allowed) {
+      const reply =
+        limit.reason === 'day'
+          ? 'Llegaste al máximo de mensajes por hoy. Volvé mañana ✌️'
+          : 'Estás mandando muchos mensajes muy rápido. Esperá un minuto y reintentá.'
+      await thread.post(reply).catch(() => {})
+      await emitWhatsAppMessage({
+        id: message.id ?? newId('msg'),
+        from: fromUser,
+        to: env.KAPSO_PHONE_NUMBER_ID,
+        text: userText,
+        timestamp: ts,
+        metadata: {
+          rateLimited: true,
+          reason: limit.reason,
+          retryAfterSeconds: limit.retryAfterSeconds,
+        },
+      })
+      await emitBotResponse({
+        id: newId('bot'),
+        conversationId,
+        userId: fromUser,
+        type: 'message',
+        content: reply,
+        metadata: { rateLimited: true, reason: limit.reason },
+        timestamp: Date.now(),
+      })
+      return
+    }
 
     // Fire-and-forget: shows the "typing..." animation during STT + agent
     // run. Don't await — saves a few hundred ms on the critical path.
