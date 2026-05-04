@@ -229,9 +229,10 @@ export function Dashboard() {
 
   const preview = useMemo(() => buildIssuePreview(draft), [draft])
 
-  const metricRows = metrics
-    ? Object.entries(metrics.eventTypes).map(([name, value]) => ({ name, value }))
-    : []
+  const metricRows =
+    metrics && metrics.eventTypes && typeof metrics.eventTypes === 'object'
+      ? Object.entries(metrics.eventTypes).map(([name, value]) => ({ name, value }))
+      : []
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6 px-6">
