@@ -1,32 +1,27 @@
-import { Redis } from '@upstash/redis';
-import { getEnv } from '../env';
+import { Redis } from '@upstash/redis'
+import { getEnv } from '@/lib/env'
 
-let redisClient: Redis | null = null;
+let client: Redis | null = null
 
+/**
+ * Returns a process-wide Upstash Redis client.
+ * Uses REST (not TCP), so it's serverless-friendly and works on
+ * Vercel Fluid Compute. The Chat SDK's state-redis adapter uses a
+ * different (TCP) connection.
+ */
 export function getRedisClient(): Redis {
-  if (!redisClient) {
-    const env = getEnv();
-    redisClient = new Redis({
-      url: env.UPSTASH_REDIS_REST_URL,
-      token: env.UPSTASH_REDIS_REST_TOKEN,
-    });
-  }
-  return redisClient;
+  if (client) return client
+  const env = getEnv()
+  client = new Redis({
+    url: env.KV_REST_API_URL,
+    token: env.KV_REST_API_TOKEN,
+  })
+  return client
 }
 
-export async function connectRedis(): Promise<void> {
-  try {
-    const client = getRedisClient();
-    await client.ping();
-    console.log('[v0] Redis connected');
-  } catch (error) {
-    console.error('[v0] Redis connection failed:', error);
-    throw error;
-  }
-}
-
-export async function disconnectRedis(): Promise<void> {
-  if (redisClient) {
-    redisClient = null;
-  }
-}
+// Convenience export matching V0_PROMPT.md style.
+export const redis = new Proxy({} as Redis, {
+  get(_t, prop) {
+    return Reflect.get(getRedisClient(), prop)
+  },
+})
