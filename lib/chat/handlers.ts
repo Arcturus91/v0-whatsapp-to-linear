@@ -12,9 +12,13 @@ import { transcribe } from '@/lib/voice/stt'
 import { synthesize } from '@/lib/voice/tts'
 import { uploadMedia } from '@/lib/kapso/media'
 import { markReadWithTyping } from '@/lib/kapso/typing'
+import { checkRateLimit } from '@/lib/safety/rate-limit'
 
 const ISSUE_ID_RE = /\b[A-Z]{2,5}-\d+\b/g
 const TTS_REPLY_MAX_CHARS = 600
+// Rough proxy for ~60s of WhatsApp opus voice notes. attachment.metadata
+// .duration isn't reliably populated by the adapter so we use buffer size.
+const AUDIO_MAX_BYTES = 200 * 1024
 
 function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -39,27 +43,93 @@ export function registerHandlers(bot: Chat): void {
     let userText = (message.text ?? '').trim()
     let modality: 'text' | 'audio' = 'text'
 
+    // Abuse guard: per-phone rate limit before any expensive work.
+    const limit = await checkRateLimit(fromUser)
+    if (!limit.allowed) {
+      const reply =
+        limit.reason === 'day'
+          ? 'Llegaste al máximo de mensajes por hoy. Volvé mañana ✌️'
+          : 'Estás mandando muchos mensajes muy rápido. Esperá un minuto y reintentá.'
+      await thread.post(reply).catch(() => {})
+      await emitWhatsAppMessage({
+        id: message.id ?? newId('msg'),
+        from: fromUser,
+        to: env.KAPSO_PHONE_NUMBER_ID,
+        text: userText,
+        timestamp: ts,
+        metadata: {
+          rateLimited: true,
+          reason: limit.reason,
+          retryAfterSeconds: limit.retryAfterSeconds,
+        },
+      })
+      await emitBotResponse({
+        id: newId('bot'),
+        conversationId,
+        userId: fromUser,
+        type: 'message',
+        content: reply,
+        metadata: { rateLimited: true, reason: limit.reason },
+        timestamp: Date.now(),
+      })
+      return
+    }
+
     // Fire-and-forget: shows the "typing..." animation during STT + agent
     // run. Don't await — saves a few hundred ms on the critical path.
     if (message.id) void markReadWithTyping(message.id)
 
     const audioAttachment = pickAudioAttachment(message.attachments)
+    let audioTooLong = false
     if (audioAttachment) {
       modality = 'audio'
       try {
         const { buffer, mimeType } = await fetchAttachment(audioAttachment)
-        userText = (await transcribe(buffer, mimeType)).trim()
-        await emitVoiceTranscribed({
-          id: newId('voice'),
-          conversationId,
-          userId: fromUser,
-          type: 'voice_note',
-          content: userText,
-          timestamp: Date.now(),
-        })
+        if (buffer.byteLength > AUDIO_MAX_BYTES) {
+          audioTooLong = true
+          console.warn('[handlers] audio too long, skipping STT:', {
+            bytes: buffer.byteLength,
+            max: AUDIO_MAX_BYTES,
+          })
+        } else {
+          userText = (await transcribe(buffer, mimeType)).trim()
+          await emitVoiceTranscribed({
+            id: newId('voice'),
+            conversationId,
+            userId: fromUser,
+            type: 'voice_note',
+            content: userText,
+            timestamp: Date.now(),
+          })
+        }
       } catch (err) {
         console.error('[handlers] STT failed:', err)
       }
+    }
+
+    if (audioTooLong) {
+      const reply =
+        'El audio es muy largo. Mandame algo más corto (máximo 1 minuto) o escribime directo.'
+      await emitWhatsAppMessage({
+        id: message.id ?? newId('msg'),
+        from: fromUser,
+        to: env.KAPSO_PHONE_NUMBER_ID,
+        text: '',
+        mediaType: 'audio',
+        timestamp: ts,
+        metadata: { audioTooLong: true },
+      })
+      await thread.post(reply).catch(() => {})
+      await emitBotResponse({
+        id: newId('bot'),
+        conversationId,
+        userId: fromUser,
+        type: 'message',
+        content: reply,
+        metadata: { audioTooLong: true },
+        timestamp: Date.now(),
+      })
+      return
     }
 
     await emitWhatsAppMessage({

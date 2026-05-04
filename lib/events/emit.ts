@@ -9,7 +9,26 @@ import type {
 
 const STREAM_KEY = 'linearvoice:events'
 const EVENTS_LIST_KEY = 'linearvoice:event_ids'
-const TTL_SEC = 60 * 60 * 24 // 24h auto-cleanup
+const TTL_SEC = 60 * 60 * 24 // 24h auto-cleanup for global event stream
+const CONVERSATION_TTL_SEC = 60 * 60 * 72 // 72h for per-conversation keys
+
+/**
+ * Refresh TTL on every per-conversation Redis key so abandoned threads
+ * auto-expire. Active threads keep bumping TTL on each write, which is
+ * exactly what we want. Aggregate keys (metrics:counters, issues:touched,
+ * conversations:active, linearvoice:event*) are intentionally NOT
+ * touched here — those persist for the dashboard.
+ */
+async function refreshConversationTtl(conversationId: string): Promise<void> {
+  const client = getRedisClient()
+  const keys = [
+    `conversation:${conversationId}`,
+    `conversation:${conversationId}:messages`,
+    `conversation:${conversationId}:tool_calls`,
+    `conversation:${conversationId}:state`,
+  ]
+  await Promise.all(keys.map((k) => client.expire(k, CONVERSATION_TTL_SEC).catch(() => 0)))
+}
 
 /**
  * Emit a StreamEvent to the linearvoice:events:* keyspace (PM's contract)
@@ -44,7 +63,7 @@ export async function emitStreamEvent(event: StreamEvent): Promise<void> {
 
     const listKey = `conversation:${conversationId}:messages`
     await client.rpush(listKey, serialized)
-    await client.expire(listKey, TTL_SEC)
+    await refreshConversationTtl(conversationId)
   }
 
   if (event.type === 'linear.event') {
@@ -112,8 +131,9 @@ export async function saveConversationState(
 ): Promise<void> {
   const client = getRedisClient()
   await client.set(`conversation:${conversationId}:state`, JSON.stringify(state), {
-    ex: TTL_SEC,
+    ex: CONVERSATION_TTL_SEC,
   })
+  await refreshConversationTtl(conversationId)
 }
 
 export async function getConversationState<T = ConversationState>(
