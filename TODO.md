@@ -2,6 +2,38 @@
 
 Working through critical/suggestion/productionization items in order. One commit per item.
 
+## Phase 1 status — COMPLETE (2026-05-11)
+
+All 5 critical items closed across 5 commits on `main`:
+
+| # | Commit | Summary |
+|---|---|---|
+| #1 | `08d138f` | Replaced `globalThis.fetch` monkey-patch with a scoped per-instance method override on `WhatsAppAdapter`; deleted `lib/kapso/webhook-adapter.ts`. |
+| #5 | `32057ec` | `REDIS_URL` required in prod via zod refinement; `getBot()` warns once on memory-state fallback in dev; `/api/health` reports `dedupeState`. |
+| #12 | `f891404` | `/api/test/send` gated by `TEST_ENDPOINT_SECRET` Bearer in prod (404 if unset), IP-rate-limited in dev. Added `?probe=1` short-circuit so the smoke doesn't burn AI tokens. |
+| #3 | `6894bdc` | `crypto.randomUUID()` for event log IDs, handler emit IDs, and the synth `wamid.test-*` (scope expansion: included `app/api/test/send/route.ts` since same root cause, surfaced by #12 smoke). |
+| #4 | `876910e` | Sliding-window circuit breaker on the rate limiters; fails CLOSED for 60s past 10 failures/60s; `rateLimiter` field on `/api/health` as pull-mode signal; `rate_limiter.degraded` stream event as push-mode (best-effort). |
+
+**Smoke scripts now in place** (all run without burning paid APIs):
+
+| Script | Coverage |
+|---|---|
+| `pnpm smoke:no-fetch-patch` | Static grep — no `globalThis.fetch` mutation or `patchFetchForKapso` references in `lib/` or `app/`. Regression guard for #1. |
+| `pnpm smoke:prod-env` | Compiles `lib/env.ts` standalone, runs `envSchema.safeParse` against a synthetic prod env missing `REDIS_URL`, asserts the refinement rejects with `REDIS_URL` in the issue. Regression guard for #5. |
+| `pnpm smoke:test-endpoint-auth` | 3 prod cases via compile-and-import on `lib/safety/test-endpoint-auth.ts` (404, 401, allow) + 1 dev case via live curl burst against the running dev server (6th hits 429). Regression guard for #12. Requires `pnpm dev` running. |
+| `pnpm smoke:circuit-breaker` | 12 unit cases on the breaker state machine via compile-and-import — trip-at-11, single-shot `onTrip`, cooldown re-close, sliding-window correctness, snapshot fields. Regression guard for #4. |
+
+The compile-and-import pattern (`pnpm exec tsc → .smoke-tmp → dynamic import`) is reused across the 3 unit smokes — candidate for a tiny shared helper if we add a 4th. The auth smoke also needs the dev server for the live-curl case; the other 3 are pure unit. All graduate to vitest in Phase 3 #C.
+
+## Discovered During Hardening
+
+Surfaced by Phase 1 work. Each one is a real-but-non-blocking finding; addressing in Phase 3 #A or earlier if they cause demo issues.
+
+- [ ] **Bubble bot dispatch `res.ok=false` to non-2xx HTTP status** on `/api/test/send` and `/api/whatsapp`. Silent data loss (DoD #2). Surfaced by #12 — the smoke's 5th probe got a Chat SDK `LockError`, the route still wrapped it in HTTP 200, and the dropped message was invisible to the caller. The investigation script ran ad-hoc to confirm.
+- [ ] **Structured log on Chat SDK `LockError`** — `conversationId`, lock TTL, what force-acquired the lock. Today the only signal of a dropped dispatch is a `[chat-sdk]` log line with no machine-readable context. Surfaced by same investigation as above.
+- [ ] **Kapso auth header inconsistency** between `lib/kapso/client.ts` (`Authorization: Bearer`) and `lib/kapso/typing.ts` (`x-api-key`). Both apparently work against Kapso, but the inconsistency is a footgun for future Kapso work. Worth unifying to a single helper.
+- [ ] **Test endpoint can't reach a real session for the synth phone** `+15550000000`. Every dispatch path hits Kapso 422 ("Cannot send non-template messages outside the 24-hour window"). The endpoint as-shipped is effectively probe-only in dev for synthetic phones; end-to-end testing requires a real phone in-session OR template messages OR a different mechanism. Limitation, not a bug.
+
 ## Phase 1 — Critical
 
 - [x] **#1** Replace `globalThis.fetch` monkey-patch in `lib/kapso/webhook-adapter.ts` with a scoped Kapso WhatsApp adapter; delete `patchFetchForKapso` / `fetchPatched`; add double-import smoke check.
@@ -23,13 +55,6 @@ Working through critical/suggestion/productionization items in order. One commit
 - [ ] **#14** `typescript.ignoreBuildErrors: false` in `next.config.mjs`; fix whatever explodes.
 - [ ] **#8** Audio duration guard from real STT duration; bump byte cap to 500KB.
 - [ ] **#16** Correlation IDs in user-facing errors; `errors:${id}` in Redis (7d TTL); `GET /api/admin/errors/:id` gated.
-
-## Discovered During Hardening
-
-Surfaced by smoke/investigation work above. Address in Phase 3 #A or earlier if they cause demo issues.
-
-- [ ] Bubble bot dispatch `res.ok=false` to non-2xx HTTP status on `/api/test/send` and `/api/whatsapp` (silent data loss, DoD #2). Surfaced by #12: the smoke's 5th probe got a Chat SDK `LockError`, returned `res.ok=false` from the bot, but the route still wrapped it in HTTP 200 — smoke couldn't see it.
-- [ ] Structured log on Chat SDK `LockError`: `conversationId`, lock TTL, force-acquired-by. Surfaced by same investigation — the only signal of the dropped probe was a stray `[chat-sdk]` log line.
 
 ## Phase 3 — Productionization
 
