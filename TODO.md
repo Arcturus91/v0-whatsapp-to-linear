@@ -8,7 +8,7 @@ Working through critical/suggestion/productionization items in order. One commit
 - [x] **#5** Redis state required in production; `getBot()` throws when missing in prod; `.env.example` documents `REDIS_URL`; `/api/health` reports `dedupeState` (ok / degraded / fail); env zod refinement.
 - [x] **#12** Lock down `/api/test/send` with `TEST_ENDPOINT_SECRET` (Bearer in prod, 404 if unset, IP rate-limit in dev).
 - [x] **#3** Replace `Math.random().toString(36).slice(2, 8)` with `crypto.randomUUID()` in `lib/events/emit.ts` and `lib/chat/handlers.ts`.
-- [ ] **#4** Rate-limiter circuit breaker: track Redis failures in module counter, fail closed for 60s when >10 failures/min, emit `rate_limiter.degraded`, console.error.
+- [x] **#4** Rate-limiter circuit breaker: track Redis failures in module counter, fail closed for 60s when >10 failures/min, emit `rate_limiter.degraded`, console.error.
 
 ## Phase 2 — Suggestions
 

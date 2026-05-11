@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "smoke:no-fetch-patch": "node scripts/smoke-no-fetch-patch.mjs",
     "smoke:prod-env": "node scripts/smoke-prod-env.mjs",
-    "smoke:test-endpoint-auth": "node scripts/smoke-test-endpoint-auth.mjs"
+    "smoke:test-endpoint-auth": "node scripts/smoke-test-endpoint-auth.mjs",
+    "smoke:circuit-breaker": "node scripts/smoke-circuit-breaker.mjs"
   },
   "dependencies": {
     "@ai-sdk/mcp": "^1.0.39",

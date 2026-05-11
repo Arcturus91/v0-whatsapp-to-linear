@@ -1,5 +1,6 @@
 import { redis } from '@/lib/redis/client'
 import { getEnv } from '@/lib/env'
+import { getBreakerSnapshot } from '@/lib/safety/circuit-breaker'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -35,6 +36,14 @@ export async function GET(): Promise<Response> {
   // have killed boot — defensive only).
   const isProd = env.NODE_ENV === 'production'
   checks.dedupeState = env.REDIS_URL ? 'ok' : isProd ? 'fail' : 'degraded'
+  // Rate-limiter circuit breaker: pull-mode signal that survives Redis
+  // being down — without this, a real outage shows up only as
+  // console.error in Vercel logs. The push-mode `rate_limiter.degraded`
+  // stream event is best-effort (it also goes through Redis); health
+  // is authoritative.
+  const breaker = getBreakerSnapshot()
+  checks.rateLimiter = breaker.open ? 'degraded' : 'ok'
+
   checks.kapso = env.KAPSO_API_KEY ? 'ok' : 'fail'
   checks.linear = env.LINEAR_OAUTH_TOKEN ? 'ok' : 'fail'
   checks.elevenlabs = env.ELEVENLABS_API_KEY ? 'ok' : 'fail'
@@ -43,5 +52,12 @@ export async function GET(): Promise<Response> {
   // `degraded` is intentionally not a failure: dev/demo deploys are still
   // healthy enough to serve. Only `fail` flips the top-level ok.
   const ok = Object.values(checks).every((v) => v !== 'fail')
-  return Response.json({ ok, checks })
+  const body: Record<string, unknown> = { ok, checks }
+  if (breaker.open) {
+    body.rateLimiterDetails = {
+      failuresInWindow: breaker.failuresInWindow,
+      openForSeconds: breaker.openForSeconds,
+    }
+  }
+  return Response.json(body)
 }

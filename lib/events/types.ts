@@ -29,9 +29,25 @@ export interface ConversationEvent {
   timestamp: number;
 }
 
+export interface RateLimiterDegradedEvent {
+  reason: 'redis_failures_exceeded_threshold';
+  failuresInWindow: number;
+  openForSeconds: number;
+  timestamp: number;
+}
+
 export interface StreamEvent {
-  type: 'whatsapp.message' | 'linear.event' | 'bot.response' | 'voice.transcribed';
-  payload: WhatsAppMessage | LinearEvent | ConversationEvent;
+  type:
+    | 'whatsapp.message'
+    | 'linear.event'
+    | 'bot.response'
+    | 'voice.transcribed'
+    | 'rate_limiter.degraded';
+  payload:
+    | WhatsAppMessage
+    | LinearEvent
+    | ConversationEvent
+    | RateLimiterDegradedEvent;
   timestamp: number;
 }
 
