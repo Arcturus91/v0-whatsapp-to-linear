@@ -1,13 +1,17 @@
 /**
- * Per-WhatsApp-number rate limiter (burst + daily cap).
+ * Rate limiters backed by Upstash Redis INCR+EXPIRE.
  *
- * Uses Upstash Redis INCR with EXPIRE-on-first-hit so each window has
- * its own TTL and resets cleanly. Two independent counters per number:
- *   - ratelimit:min:{phone}  — 10 per 60s   (burst)
- *   - ratelimit:day:{phone}  — 100 per 24h  (daily cap)
+ *   - checkRateLimit(phone)  — per-WhatsApp-number burst (10/60s) +
+ *                              daily cap (100/24h). Used by
+ *                              lib/chat/handlers.ts on the inbound
+ *                              hot path to bound runaway users.
+ *   - checkIpRateLimit(ip)   — per-IP burst (5/60s). Used by the dev
+ *                              path of /api/test/send to bound a
+ *                              curious laptop hammering localhost.
  *
- * Used by lib/chat/handlers.ts at the very top of the inbound handler
- * to keep curious LinkedIn visitors from blowing up the bill.
+ * checkRateLimit fails OPEN on Redis errors (don't block real users due
+ * to Redis flakiness). checkIpRateLimit fails CLOSED — see its docblock.
+ * #4 layers a circuit breaker on top.
  */
 import { getRedisClient } from '@/lib/redis/client'
 
@@ -16,9 +20,12 @@ const MINUTE_TTL = 60
 const DAY_LIMIT = 100
 const DAY_TTL = 60 * 60 * 24
 
+const IP_LIMIT = 5
+const IP_TTL = 60
+
 export interface RateLimitResult {
   allowed: boolean
-  reason?: 'minute' | 'day'
+  reason?: 'minute' | 'day' | 'ip' | 'redis_unavailable'
   retryAfterSeconds?: number
 }
 
@@ -50,6 +57,32 @@ export async function checkRateLimit(phoneNumber: string): Promise<RateLimitResu
     // Fail-open: never block real users due to Redis flakiness.
     console.warn('[rate-limit] check failed, allowing:', err)
     return { allowed: true }
+  }
+}
+
+/**
+ * IP-based limiter for the dev path of /api/test/send. Fail-CLOSED on
+ * Redis errors: in dev there's no bearer secret protecting the
+ * endpoint, and dev servers are routinely exposed via tunnels (ngrok,
+ * cloudflared) for Kapso testing. A silent Redis outage must not
+ * silently unlock the endpoint.
+ *
+ * The per-phone `checkRateLimit` keeps its fail-open semantics — real
+ * users on the inbound hot path shouldn't be blocked by Redis flakiness.
+ */
+export async function checkIpRateLimit(ip: string): Promise<RateLimitResult> {
+  if (!ip) return { allowed: true }
+  const key = `ratelimit:ip:${ip}`
+  try {
+    const count = await bumpCounter(key, IP_TTL)
+    if (count > IP_LIMIT) {
+      const ttl = await safeTtl(key, IP_TTL)
+      return { allowed: false, reason: 'ip', retryAfterSeconds: ttl }
+    }
+    return { allowed: true }
+  } catch (err) {
+    console.error('[rate-limit] ip check failed, denying:', err)
+    return { allowed: false, reason: 'redis_unavailable' }
   }
 }
 

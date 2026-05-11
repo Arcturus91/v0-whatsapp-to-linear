@@ -38,6 +38,12 @@ export const envSchema = z.object({
   // Bot config
   BOT_USERNAME: z.string().default('linearvoice'),
 
+  // Optional bearer secret that gates POST /api/test/send.
+  // In production: if unset the endpoint 404s; if set callers must
+  // present `Authorization: Bearer ${TEST_ENDPOINT_SECRET}`. In dev the
+  // endpoint is open (IP-rate-limited).
+  TEST_ENDPOINT_SECRET: z.string().min(1).optional(),
+
   // Environment
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 }).refine(
