@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "smoke:no-fetch-patch": "node scripts/smoke-no-fetch-patch.mjs"
   },
   "dependencies": {
     "@ai-sdk/mcp": "^1.0.39",

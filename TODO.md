@@ -4,7 +4,7 @@ Working through critical/suggestion/productionization items in order. One commit
 
 ## Phase 1 — Critical
 
-- [ ] **#1** Replace `globalThis.fetch` monkey-patch in `lib/kapso/webhook-adapter.ts` with a scoped Kapso WhatsApp adapter; delete `patchFetchForKapso` / `fetchPatched`; add double-import smoke check.
+- [x] **#1** Replace `globalThis.fetch` monkey-patch in `lib/kapso/webhook-adapter.ts` with a scoped Kapso WhatsApp adapter; delete `patchFetchForKapso` / `fetchPatched`; add double-import smoke check.
 - [ ] **#5** Redis state required in production; `getBot()` throws when missing in prod; `.env.example` documents `REDIS_URL`; `/api/health` reports `dedupeState` (ok / degraded / fail); env zod refinement.
 - [ ] **#12** Lock down `/api/test/send` with `TEST_ENDPOINT_SECRET` (Bearer in prod, 404 if unset, IP rate-limit in dev).
 - [ ] **#3** Replace `Math.random().toString(36).slice(2, 8)` with `crypto.randomUUID()` in `lib/events/emit.ts` and `lib/chat/handlers.ts`.

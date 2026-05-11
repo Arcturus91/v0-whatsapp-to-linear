@@ -2,10 +2,10 @@ import { Chat } from 'chat'
 import { createMemoryState } from '@chat-adapter/state-memory'
 import { createRedisState } from '@chat-adapter/state-redis'
 import { getEnv } from '@/lib/env'
-import { getWhatsAppAdapter } from '@/lib/kapso/webhook-adapter'
+import { getKapsoWhatsAppAdapter } from '@/lib/kapso/whatsapp-adapter'
 import { registerHandlers } from './handlers'
 
-type Adapters = { whatsapp: ReturnType<typeof getWhatsAppAdapter> }
+type Adapters = { whatsapp: ReturnType<typeof getKapsoWhatsAppAdapter> }
 
 let cached: Chat<Adapters> | null = null
 
@@ -26,7 +26,7 @@ export function getBot(): Chat<Adapters> {
 
   cached = new Chat<Adapters>({
     userName: env.BOT_USERNAME,
-    adapters: { whatsapp: getWhatsAppAdapter() },
+    adapters: { whatsapp: getKapsoWhatsAppAdapter() },
     state,
     dedupeTtlMs: 600_000,
     // The agent stream may run several seconds; allow new messages on
