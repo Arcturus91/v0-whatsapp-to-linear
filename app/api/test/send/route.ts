@@ -100,7 +100,7 @@ export async function POST(req: Request): Promise<Response> {
               messages: [
                 {
                   from: from.replace(/^\+/, ''),
-                  id: `wamid.test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                  id: `wamid.test-${Date.now()}-${crypto.randomUUID()}`,
                   timestamp: Math.floor(Date.now() / 1000).toString(),
                   type: 'text',
                   text: { body: text },

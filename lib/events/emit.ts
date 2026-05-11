@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { redis, getRedisClient } from '@/lib/redis/client'
 import type {
   ConversationEvent,
@@ -37,7 +38,7 @@ async function refreshConversationTtl(conversationId: string): Promise<void> {
  */
 export async function emitStreamEvent(event: StreamEvent): Promise<void> {
   const client = getRedisClient()
-  const eventId = `${event.timestamp}-${Math.random().toString(36).slice(2, 8)}`
+  const eventId = `${event.timestamp}-${randomUUID()}`
   const serialized = JSON.stringify({
     id: eventId,
     type: event.type,

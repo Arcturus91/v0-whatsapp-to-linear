@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer'
+import { randomUUID } from 'node:crypto'
 import type { Chat, Thread, Message, Attachment } from 'chat'
 import {
   emitBotResponse,
@@ -21,7 +22,7 @@ const TTS_REPLY_MAX_CHARS = 600
 const AUDIO_MAX_BYTES = 200 * 1024
 
 function newId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  return `${prefix}-${Date.now()}-${randomUUID()}`
 }
 
 /**
