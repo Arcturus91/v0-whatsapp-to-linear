@@ -1,14 +1,17 @@
 import { z } from 'zod'
 
-const envSchema = z.object({
+export const envSchema = z.object({
   // Vercel-managed (Upstash Redis Marketplace integration).
   // The Marketplace install auto-injects these names; @upstash/redis also
   // reads them via Redis.fromEnv().
   KV_REST_API_URL: z.string().url(),
   KV_REST_API_TOKEN: z.string(),
-  // Optional TCP redis URL for the Chat SDK state-redis adapter (which
-  // uses node-redis, not the REST API). When absent we fall back to the
-  // memory state adapter — fine for the demo.
+  // TCP redis URL for the Chat SDK state-redis adapter (which uses
+  // node-redis, not the Upstash REST API). Required in production —
+  // without it dedupe / locks / thread history are per-instance, which
+  // silently breaks correctness across Fluid Compute cold starts.
+  // Optional in dev/test so `pnpm dev` boots without it (memory state
+  // fallback).
   REDIS_URL: z.string().url().optional(),
 
   // AI Gateway — at least one must be present in production but both are
@@ -37,7 +40,17 @@ const envSchema = z.object({
 
   // Environment
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-})
+}).refine(
+  (data) => data.NODE_ENV !== 'production' || !!data.REDIS_URL,
+  {
+    message:
+      'REDIS_URL is required in production. It is the TCP URL for ' +
+      '@chat-adapter/state-redis (separate from KV_REST_API_URL). The ' +
+      'Vercel Upstash integration auto-injects it; pull with ' +
+      '`vercel env pull` or check Storage > Upstash.',
+    path: ['REDIS_URL'],
+  },
+)
 
 export type Env = z.infer<typeof envSchema>
 

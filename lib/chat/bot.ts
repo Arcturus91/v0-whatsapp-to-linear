@@ -8,21 +8,32 @@ import { registerHandlers } from './handlers'
 type Adapters = { whatsapp: ReturnType<typeof getKapsoWhatsAppAdapter> }
 
 let cached: Chat<Adapters> | null = null
+let warnedMemoryState = false
+
+function getStateStore(redisUrl: string | undefined) {
+  if (redisUrl) return createRedisState({ url: redisUrl })
+  if (!warnedMemoryState) {
+    warnedMemoryState = true
+    console.warn(
+      '[bot] REDIS_URL not set — using in-memory dedupe/lock/history. ' +
+        'Safe for local dev/demo; production deploys require TCP Redis.',
+    )
+  }
+  return createMemoryState()
+}
 
 /**
  * Returns the process-wide Chat SDK bot instance.
- * Falls back to MemoryState if no TCP-style REDIS_URL is configured —
- * Upstash's REST URL is not compatible with the state-redis adapter
- * (which uses node-redis under the hood), so we keep memory state
- * as a deliberate dev/demo fallback.
+ *
+ * In production, `REDIS_URL` is required (enforced by the env schema's
+ * refinement). In dev/test we fall back to MemoryState so `pnpm dev`
+ * boots without TCP Redis configured — but warn once so the operator
+ * knows dedupe / locks / thread history are per-instance.
  */
 export function getBot(): Chat<Adapters> {
   if (cached) return cached
   const env = getEnv()
-
-  const state = env.REDIS_URL
-    ? createRedisState({ url: env.REDIS_URL })
-    : createMemoryState()
+  const state = getStateStore(env.REDIS_URL)
 
   cached = new Chat<Adapters>({
     userName: env.BOT_USERNAME,

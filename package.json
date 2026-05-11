@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "smoke:no-fetch-patch": "node scripts/smoke-no-fetch-patch.mjs"
+    "smoke:no-fetch-patch": "node scripts/smoke-no-fetch-patch.mjs",
+    "smoke:prod-env": "node scripts/smoke-prod-env.mjs"
   },
   "dependencies": {
     "@ai-sdk/mcp": "^1.0.39",
